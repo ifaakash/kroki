@@ -1,0 +1,49 @@
+@startuml
+' 1. CONFIGURATION
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v18.0/dist
+!include AWSPuml/AWSCommon.puml
+!include AWSPuml/Groups/AWSCloud.puml
+!include AWSPuml/Groups/Region.puml
+!include AWSPuml/Groups/VPC.puml
+!include AWSPuml/Groups/PublicSubnet.puml
+!include AWSPuml/Groups/PrivateSubnet.puml
+!include AWSPuml/NetworkingContentDelivery/VPCNATGateway.puml
+!include AWSPuml/NetworkingContentDelivery/VPCInternetGateway.puml
+!include AWSPuml/Compute/EC2Instance.puml
+!include AWSPuml/ManagementGovernance/SystemsManager.puml
+
+' 2. STYLING
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 60
+
+' 3. ARCHITECTURE
+AWSCloudGroup(cloud) {
+  RegionGroup(region, "us-east-1") {
+    VPCGroup(vpc, "My Main VPC") {
+
+      ' Internet Gateway (Attached to VPC edge)
+      VPCInternetGateway(igw, "Internet Gateway", "")
+
+      ' Public Subnets (2 AZs)
+      PublicSubnetGroup(pub, "Public Subnets (2)") {
+        VPCNATGateway(nat, "NAT Gateway", "")
+      }
+
+      ' Private Subnets (2 AZs)
+      PrivateSubnetGroup(priv, "Private Subnets (2)") {
+        EC2Instance(ec2, "App Server", "SSM Enabled")
+        SystemsManager(ssm, "Systems Manager", "")
+      }
+    }
+  }
+}
+
+' 4. RELATIONSHIPS
+' Traffic Flow
+ec2 -up-> nat : Outbound Traffic
+nat -up-> igw : Internet Access
+
+' Logical Connection (SSM)
+ec2 .right.> ssm : Managed by
+@enduml

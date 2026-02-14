@@ -1,0 +1,85 @@
+@startuml
+allow_mixing
+
+' 1. CONFIGURATION
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v20.0/dist
+!include AWSPuml/AWSCommon.puml
+!include AWSPuml/Groups/AWSCloud.puml
+!include AWSPuml/Groups/Region.puml
+!include AWSPuml/Groups/VPC.puml
+!include AWSPuml/Groups/PublicSubnet.puml
+!include AWSPuml/Groups/PrivateSubnet.puml
+!include AWSPuml/NetworkingContentDelivery/Route53.puml
+!include AWSPuml/NetworkingContentDelivery/ElasticLoadBalancingApplicationLoadBalancer.puml
+!include AWSPuml/Containers/ElasticContainerService.puml
+' FIXED: Switched to standard RDS MariaDB to match your usage below (instead of Aurora)
+!include AWSPuml/Database/RDS.puml
+!include AWSPuml/Storage/SimpleStorageService.puml
+!include AWSPuml/ManagementGovernance/CloudWatch.puml
+!include AWSPuml/General/Internetalt1.puml
+
+' FIXED: Correct Include for Datadog using Gilbarbara
+!include https://raw.githubusercontent.com/plantuml-stdlib/gilbarbara-plantuml-sprites/master/sprites/datadog.puml
+
+' 2. STYLING
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 60
+
+' 3. ARCHITECTURE
+AWSCloudGroup(cloud) {
+
+  ' External Services & Storage
+  package "Observability & Logging" {
+      CloudWatch(cw, "CloudWatch Logs", "Container Logs")
+      SimpleStorageService(s3, "ALB Access Logs", "S3 Bucket")
+      ' FIXED: Simplified the Datadog call using the sprite included above
+      rectangle "Datadog" as datadog <<$datadog>>
+  }
+
+  RegionGroup(region, "us-east-1 (Dev)") {
+
+    Route53(r53, "Route 53", "DNS")
+
+    VPCGroup(vpc, "Dev VPC") {
+
+      ' Public Zone (Load Balancer)
+      PublicSubnetGroup(pub, "Public Subnets (2)") {
+        ElasticLoadBalancingApplicationLoadBalancer(alb, "Application LB", "Internet Facing")
+      }
+
+      ' Private Zone (Compute & Data)
+      PrivateSubnetGroup(priv, "Private Subnets (2)") {
+
+        rectangle "ECS Cluster" as cluster {
+            ' FIXED: Removed extra "Service" from macro name
+            ElasticContainerService(laravel, "Laravel Service", "Path: /app")
+            ElasticContainerService(modx, "MODX Service", "Default Rule")
+        }
+
+        ' Database (Single AZ for Dev)
+        ' FIXED: Ensure this matches the !include above
+        RDS(mariadb, "MariaDB", "Single-AZ")
+      }
+    }
+  }
+}
+
+' 4. RELATIONSHIPS
+' User Flow
+r53 -down-> alb : Alias Record
+alb -down-> laravel : Path: /app
+alb -down-> modx : Default
+
+' Database Connections
+laravel -down-> mariadb : SQL (3306)
+modx -down-> mariadb : SQL (3306)
+
+' Logging & Monitoring Flow
+alb .right.> s3 : Push Access Logs
+laravel .up.> cw : Stream Logs
+modx .up.> cw : Stream Logs
+laravel .up.> datadog : Metrics/Traces
+modx .up.> datadog : Metrics/Traces
+
+@enduml

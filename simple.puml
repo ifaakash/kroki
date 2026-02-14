@@ -1,0 +1,13 @@
+@startuml
+skinparam backgroundColor #EEEBDC
+skinparam handwritten true
+
+actor User
+participant "Web App" as Web
+database "DB" as DB
+
+User -> Web : Login Request
+Web -> DB : Check Credentials
+DB --> Web : User Found
+Web --> User : Login Success
+@enduml

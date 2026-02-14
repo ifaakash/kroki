@@ -1,0 +1,73 @@
+@startuml
+allow_mixing
+
+' 1. CONFIGURATION (Your provided block)
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v20.0/dist
+!include AWSPuml/AWSCommon.puml
+!include AWSPuml/Groups/AWSCloud.puml
+!include AWSPuml/Groups/Region.puml
+!include AWSPuml/Groups/VPC.puml
+!include AWSPuml/Groups/PublicSubnet.puml
+!include AWSPuml/Groups/PrivateSubnet.puml
+!include AWSPuml/NetworkingContentDelivery/Route53.puml
+!include AWSPuml/NetworkingContentDelivery/ElasticLoadBalancingApplicationLoadBalancer.puml
+!include AWSPuml/Containers/ElasticContainerService.puml
+!include AWSPuml/Database/AuroraMariaDBInstance.puml
+!include AWSPuml/Storage/SimpleStorageService.puml
+!include AWSPuml/ManagementGovernance/CloudWatch.puml
+!include AWSPuml/General/Internetalt1.puml
+
+' Custom generic icon for Datadog
+!include https://raw.githubusercontent.com/plantuml-stdlib/gilbarbara-plantuml-sprites/master/sprites/datadog.puml
+rectangle "Datadog" as datadog <<$datadog>>
+
+' 2. ARCHITECTURE DIAGRAM
+Internetalt1(user, "User", "HTTPS")
+
+AWSCloudGroup(cloud) {
+
+    ' Region Wrapper
+    RegionGroup(region, "us-east-1") {
+
+        ' DNS (Global to Region)
+        Route53(dns, "Route 53", "DNS Resolution")
+
+        ' VPC Wrapper
+        VPCGroup(vpc, "Production VPC") {
+
+            ' Public Subnet: Load Balancer
+            PublicSubnetGroup(pub_net, "Public Subnet") {
+                ElasticLoadBalancingApplicationLoadBalancer(alb, "ALB", "Traffic Ingress")
+            }
+
+            ' Private Subnet: Compute and Database
+            PrivateSubnetGroup(priv_net, "Private Subnet") {
+                ElasticContainerService(ecs, "App Service", "Fargate Cluster")
+                AuroraMariaDBInstance(db, "Aurora RDS", "MariaDB")
+            }
+
+            ' Internal Monitoring
+            CloudWatch(cw, "CloudWatch", "Logs & Metrics")
+        }
+
+        ' Storage (VPC Endpoint or Global)
+        SimpleStorageService(s3, "S3 Bucket", "Static Assets")
+    }
+}
+
+' 3. RELATIONSHIPS
+' User Flow
+user --> dns
+dns --> alb : " Resolves to"
+alb --> ecs : " Forwards Traffic"
+
+' Application Logic
+ecs --> db : " Read/Write SQL"
+ecs --> s3 : " Get Objects"
+
+' Observability Flow
+ecs -.-> cw : " Agent/Logs"
+cw -.-> datadog : " Log Forwarder / Firehose"
+alb -.-> cw : " Access Logs"
+
+@enduml
