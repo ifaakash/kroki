@@ -1,0 +1,3 @@
+curl -X POST --data-binary "@optic.puml" http://localhost:8080/png > optic.png
+
+docker run -d --name plantuml -p 8080:8080 plantuml/plantuml-server:jetty
