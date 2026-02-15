@@ -28,10 +28,10 @@ This repository contains architectural diagrams illustrating the system's infras
       </p>
     </td>
     <td width="50%" align="center">
-      <h3>Authentication Sequence</h3>
-      <img src="output.png" alt="Authentication Sequence Diagram" width="100%">
+      <h3>High-Level Architecture</h3>
+      <img src="optic-optimized.png" alt="High-Level Architecture Diagram" width="100%">
       <p align="left">
-        Sequence diagram demonstrating the user login flow between the Web Application and Database. Visualizes the request/response cycle for credential verification and session establishment.
+        High-level architecture diagram illustrating the interaction between AWS services (Route53, ALB, ECS, RDS, S3) and Datadog for a scalable and observable application infrastructure.
       </p>
     </td>
   </tr>
