@@ -1,0 +1,108 @@
+@startuml
+allow_mixing
+
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v20.0/dist
+!include AWSPuml/AWSCommon.puml
+!include AWSPuml/Groups/AWSCloud.puml
+!include AWSPuml/Groups/Region.puml
+!include AWSPuml/Groups/VPC.puml
+!include AWSPuml/Groups/PublicSubnet.puml
+!include AWSPuml/Groups/PrivateSubnet.puml
+!include AWSPuml/NetworkingContentDelivery/Route53.puml
+!include AWSPuml/NetworkingContentDelivery/Route53HostedZone.puml
+!include AWSPuml/NetworkingContentDelivery/ElasticLoadBalancingApplicationLoadBalancer.puml
+!include AWSPuml/NetworkingContentDelivery/VPCInternetGateway.puml
+!include AWSPuml/NetworkingContentDelivery/VPCNATGateway.puml
+!include AWSPuml/Containers/ElasticContainerService.puml
+!include AWSPuml/Containers/ElasticContainerServiceService.puml
+!include AWSPuml/Compute/EC2AutoScaling.puml
+!include AWSPuml/Database/AuroraMariaDBInstance.puml
+!include AWSPuml/Storage/SimpleStorageService.puml
+!include AWSPuml/ManagementGovernance/CloudWatch.puml
+!include AWSPuml/General/Internetalt1.puml
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/gilbarbara-plantuml-sprites/master/sprites/datadog.puml
+
+top to bottom direction
+
+Internetalt1(user, "User", "HTTPS")
+
+AWSCloudGroup(cloud) {
+  RegionGroup(region, "us-east-1") {
+
+    ' Global/Region Level
+    rectangle "External Entry" as entry_group {
+      Route53HostedZone(dns, "Route 53", "dev.complianceview360.io")
+    }
+
+    SimpleStorageService(s3_logs, "S3 Bucket", "ALB Access Logs")
+    CloudWatch(cw, "CloudWatch", "Logs & Metrics")
+
+    VPCGroup(vpc, "VPC (10.0.0.0/16)") {
+
+        ' Gateways
+        VPCInternetGateway(igw, "Internet Gateway", "Public Access")
+
+        ' Public Subnets
+        PublicSubnetGroup(pub_net, "Public Subnets (/20)") {
+            ElasticLoadBalancingApplicationLoadBalancer(alb, "ALB", "Public Ingress")
+            VPCNATGateway(nat, "NAT Gateway", "Outbound Connectivity")
+        }
+
+        ' Private Subnets
+        PrivateSubnetGroup(priv_net, "Private Subnets (/20)") {
+
+            ' Compute Layer
+            rectangle "ECS Cluster (Fargate/EC2)" as cluster_box {
+                ElasticContainerService(ecs_cluster, "ECS Cluster", "Orchestrator")
+
+                rectangle "Services" as services_box {
+                   ElasticContainerServiceService(svc_modx, "MODX", "Path: /")
+                   ElasticContainerServiceService(svc_laravel, "Laravel", "Path: /app")
+                   ElasticContainerServiceService(svc_dd, "Datadog Agent", "Daemon Service")
+                }
+
+                EC2AutoScaling(asg, "Auto Scaling Grp", "Capacity Provider")
+            }
+
+            ' Database Layer
+            AuroraMariaDBInstance(db, "RDS MariaDB", "Single AZ (Port 3306)")
+        }
+    }
+  }
+}
+
+rectangle "Datadog" as datadog <<$datadog>>
+
+' --- RELATIONSHIPS ---
+
+' 1. Entry Flow
+user --> dns : " Resolves Domain"
+dns --> alb : " Traffic"
+
+' 2. Ingress Flow
+alb -[hidden]-> svc_modx
+alb --> svc_modx : " Route /"
+alb --> svc_laravel : " Route /app"
+
+' 3. Database Flow
+svc_modx --> db : " SQL (3306)"
+svc_laravel --> db : " SQL (3306)"
+
+' 4. Outbound / NAT Flow
+' We use dotted lines to the left (.l.) to reduce clutter
+svc_modx .l.> nat : " Outbound"
+svc_laravel .l.> nat : " Outbound"
+nat ..> igw : " Internet Access"
+
+' 5. Observability
+' We use dotted lines to the right (.r.) to separate logs from traffic
+alb .r.> s3_logs : " Access Logs"
+svc_modx .r.> cw : " App Logs"
+svc_laravel .r.> cw : " App Logs"
+cw .r.> datadog : " Forwarding"
+
+' 6. Infrastructure Logic
+ecs_cluster -l-> asg : " Scaling"
+
+@enduml

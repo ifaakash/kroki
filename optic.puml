@@ -1,7 +1,6 @@
 @startuml
 allow_mixing
 
-' 1. CONFIGURATION
 !define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v20.0/dist
 !include AWSPuml/AWSCommon.puml
 !include AWSPuml/Groups/AWSCloud.puml
@@ -10,76 +9,94 @@ allow_mixing
 !include AWSPuml/Groups/PublicSubnet.puml
 !include AWSPuml/Groups/PrivateSubnet.puml
 !include AWSPuml/NetworkingContentDelivery/Route53.puml
+!include AWSPuml/NetworkingContentDelivery/Route53HostedZone.puml
 !include AWSPuml/NetworkingContentDelivery/ElasticLoadBalancingApplicationLoadBalancer.puml
+!include AWSPuml/NetworkingContentDelivery/VPCInternetGateway.puml
+!include AWSPuml/NetworkingContentDelivery/VPCNATGateway.puml
 !include AWSPuml/Containers/ElasticContainerService.puml
-' FIXED: Switched to standard RDS MariaDB to match your usage below (instead of Aurora)
-!include AWSPuml/Database/RDS.puml
+!include AWSPuml/Containers/ElasticContainerServiceService.puml
+!include AWSPuml/Compute/EC2AutoScaling.puml
+!include AWSPuml/Database/AuroraMariaDBInstance.puml
 !include AWSPuml/Storage/SimpleStorageService.puml
 !include AWSPuml/ManagementGovernance/CloudWatch.puml
 !include AWSPuml/General/Internetalt1.puml
 
-' FIXED: Correct Include for Datadog using Gilbarbara
+' Custom generic icon for Datadog
 !include https://raw.githubusercontent.com/plantuml-stdlib/gilbarbara-plantuml-sprites/master/sprites/datadog.puml
 
-' 2. STYLING
-skinparam linetype ortho
-skinparam nodesep 60
-skinparam ranksep 60
+left to right direction
 
-' 3. ARCHITECTURE
+Internetalt1(user, "User", "HTTPS")
+
 AWSCloudGroup(cloud) {
+RegionGroup(region, "us-east-1") {
 
-  ' External Services & Storage
-  package "Observability & Logging" {
-      CloudWatch(cw, "CloudWatch Logs", "Container Logs")
-      SimpleStorageService(s3, "ALB Access Logs", "S3 Bucket")
-      ' FIXED: Simplified the Datadog call using the sprite included above
-      rectangle "Datadog" as datadog <<$datadog>>
-  }
+' Global/Region Level
+Route53HostedZone(dns, "Route 53", "dev.complianceview360.io")
+SimpleStorageService(s3_logs, "S3 Bucket", "ALB Access Logs")
 
-  RegionGroup(region, "us-east-1 (Dev)") {
+VPCGroup(vpc, "VPC (10.0.0.0/16)") {
 
-    Route53(r53, "Route 53", "DNS")
+    ' Gateways
+    VPCInternetGateway(igw, "Internet Gateway", "Public Access")
 
-    VPCGroup(vpc, "Dev VPC") {
+    ' Public Subnets (us-east-1a/b)
+    PublicSubnetGroup(pub_net, "Public Subnets (/20)") {
+        ElasticLoadBalancingApplicationLoadBalancer(alb, "ALB", "Public Ingress")
+        VPCNATGateway(nat, "NAT Gateway", "Outbound Connectivity")
+    }
 
-      ' Public Zone (Load Balancer)
-      PublicSubnetGroup(pub, "Public Subnets (2)") {
-        ElasticLoadBalancingApplicationLoadBalancer(alb, "Application LB", "Internet Facing")
-      }
+    ' Private Subnets (us-east-1a/b)
+    PrivateSubnetGroup(priv_net, "Private Subnets (/20)") {
 
-      ' Private Zone (Compute & Data)
-      PrivateSubnetGroup(priv, "Private Subnets (2)") {
+        ' Compute Layer
+        rectangle "ECS Cluster (Fargate/EC2)" as cluster_box {
+            EC2AutoScaling(asg, "Auto Scaling Grp", "Capacity Provider")
+            ElasticContainerService(ecs_cluster, "ECS Cluster", "Orchestrator")
 
-        rectangle "ECS Cluster" as cluster {
-            ' FIXED: Removed extra "Service" from macro name
-            ElasticContainerService(laravel, "Laravel Service", "Path: /app")
-            ElasticContainerService(modx, "MODX Service", "Default Rule")
+            ElasticContainerServiceService(svc_modx, "MODX", "Path: /")
+            ElasticContainerServiceService(svc_laravel, "Laravel", "Path: /app")
+            ElasticContainerServiceService(svc_dd, "Datadog Agent", "Daemon Service")
         }
 
-        ' Database (Single AZ for Dev)
-        ' FIXED: Ensure this matches the !include above
-        RDS(mariadb, "MariaDB", "Single-AZ")
-      }
+        ' Database Layer
+        AuroraMariaDBInstance(db, "RDS MariaDB", "Single AZ (Port 3306)")
     }
-  }
 }
 
-' 4. RELATIONSHIPS
-' User Flow
-r53 -down-> alb : Alias Record
-alb -down-> laravel : Path: /app
-alb -down-> modx : Default
+' Monitoring
+CloudWatch(cw, "CloudWatch", "Logs & Metrics")
+}
 
-' Database Connections
-laravel -down-> mariadb : SQL (3306)
-modx -down-> mariadb : SQL (3306)
+}
 
-' Logging & Monitoring Flow
-alb .right.> s3 : Push Access Logs
-laravel .up.> cw : Stream Logs
-modx .up.> cw : Stream Logs
-laravel .up.> datadog : Metrics/Traces
-modx .up.> datadog : Metrics/Traces
+' Connectivity Relationships
+user --> dns : " Resolves Domain"
+dns --> alb : " Traffic"
+alb --> svc_modx : " Route /"
+alb --> svc_laravel : " Route /app"
+
+' Network Relationships
+pub_net -[hidden]-> igw
+priv_net -[hidden]-> nat
+pub_net --> igw : " Internet Access"
+svc_modx --> nat : " Outbound"
+svc_laravel --> nat : " Outbound"
+
+' Database Relationships
+svc_modx --> db : " SQL (3306)"
+svc_laravel --> db : " SQL (3306)"
+
+' Scaling Relationship
+ecs_cluster -l-> asg : " Scaling/Capacity"
+
+rectangle "Datadog" as datadog <<$datadog>>
+
+' Observability Relationships
+alb -.-> s3_logs : " Access Logs"
+svc_modx -.-> cw : " App Logs"
+svc_laravel -.-> cw : " App Logs"
+' svc_dd -.-> datadog_saas : " Metrics/Logs"
+cw -.-> datadog : " Forwarding"
 
 @enduml
