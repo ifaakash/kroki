@@ -1,0 +1,159 @@
+@startuml
+allow_mixing
+
+' --- IMPORTS ---
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v20.0/dist
+!include AWSPuml/AWSCommon.puml
+!include AWSPuml/Groups/AWSCloud.puml
+!include AWSPuml/Groups/Region.puml
+!include AWSPuml/Groups/AvailabilityZone.puml
+!include AWSPuml/Groups/VPC.puml
+!include AWSPuml/Groups/PublicSubnet.puml
+!include AWSPuml/Groups/PrivateSubnet.puml
+!include AWSPuml/NetworkingContentDelivery/Route53.puml
+!include AWSPuml/NetworkingContentDelivery/Route53HostedZone.puml
+!include AWSPuml/NetworkingContentDelivery/ElasticLoadBalancingApplicationLoadBalancer.puml
+!include AWSPuml/NetworkingContentDelivery/VPCInternetGateway.puml
+!include AWSPuml/NetworkingContentDelivery/VPCNATGateway.puml
+!include AWSPuml/Containers/ElasticContainerService.puml
+!include AWSPuml/Containers/ElasticContainerServiceService.puml
+!include AWSPuml/Compute/EC2AutoScaling.puml
+!include AWSPuml/Compute/EC2Instance.puml
+!include AWSPuml/Database/AuroraMariaDBInstance.puml
+!include AWSPuml/Storage/SimpleStorageService.puml
+!include AWSPuml/ManagementGovernance/CloudWatch.puml
+!include AWSPuml/ApplicationIntegration/EventBridge.puml
+!include AWSPuml/General/Internetalt1.puml
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/gilbarbara-plantuml-sprites/master/sprites/datadog.puml
+
+' Layout Direction
+top to bottom direction
+
+Internetalt1(user, "User", "HTTPS")
+rectangle "Datadog" as datadog <<$datadog>>
+
+' --- AWS ACCOUNT ---
+AWSCloudGroup(cloud) {
+
+  ' Global DNS (Managed globally, pointing to specific regions)
+  Route53HostedZone(dns, "Route 53", "complianceview360.io")
+
+  ' ==========================================================
+  ' REGION 1: DEV (us-east-1) - ISOLATED
+  ' ==========================================================
+  RegionGroup(region_dev, "us-east-1 (DEV)") {
+
+    ' DEV Specific Monitoring/Logging
+    CloudWatch(dev_cw, "CloudWatch", "Dev Logs")
+    SimpleStorageService(dev_s3, "S3 Bucket", "Dev ALB Logs")
+
+    VPCGroup(dev_vpc, "DEV VPC (10.0.0.0/16)") {
+        VPCInternetGateway(dev_igw, "IGW", "Dev")
+
+        PublicSubnetGroup(dev_pub, "Public Subnets") {
+             ElasticLoadBalancingApplicationLoadBalancer(dev_alb, "ALB", "Dev Ingress")
+             VPCNATGateway(dev_nat, "NAT Gateway", "Dev Outbound")
+        }
+
+        PrivateSubnetGroup(dev_priv, "Private Subnets") {
+             ElasticContainerService(dev_cluster, "ECS Cluster", "Dev")
+             rectangle "Dev Services" {
+                 ElasticContainerServiceService(dev_modx, "MODX", "Path: /")
+                 ElasticContainerServiceService(dev_laravel, "Laravel", "Path: /app")
+             }
+             AuroraMariaDBInstance(dev_db, "RDS MariaDB", "Single AZ")
+        }
+    }
+  }
+
+  ' ==========================================================
+  ' REGION 2: PROD (us-east-2) - ISOLATED
+  ' ==========================================================
+  RegionGroup(region_prod, "us-east-2 (PROD)") {
+
+    ' PROD Specific Monitoring/Logging
+    CloudWatch(prod_cw, "CloudWatch", "Prod Logs")
+    SimpleStorageService(prod_s3, "S3 Bucket", "Prod ALB Logs")
+    EventBridge(prod_eventbridge, "EventBridge", "Daily/Weekly Cron")
+
+    VPCGroup(prod_vpc, "PROD VPC (10.1.0.0/16)") {
+        VPCInternetGateway(prod_igw, "IGW", "Prod")
+
+        ' ALB spans AZs
+        ElasticLoadBalancingApplicationLoadBalancer(prod_alb, "ALB", "Prod Ingress")
+
+        ' --- Availability Zone 2a ---
+        AvailabilityZoneGroup(az_2a, "us-east-2a") {
+            PublicSubnetGroup(prod_pub_2a, "Public Subnet 2a") {
+                VPCNATGateway(prod_nat_2a, "NAT GW A", "Outbound")
+                ' PROD Specific: Hourly Cron Server
+                EC2Instance(prod_cron, "Cron Server", "Hourly Jobs")
+            }
+            PrivateSubnetGroup(prod_priv_2a, "Private Subnet 2a") {
+                ElasticContainerServiceService(prod_app_2a, "App Replicas", "Zone A")
+                AuroraMariaDBInstance(prod_db_primary, "RDS Primary", "Writer")
+            }
+        }
+
+        ' --- Availability Zone 2b ---
+        AvailabilityZoneGroup(az_2b, "us-east-2b") {
+            PublicSubnetGroup(prod_pub_2b, "Public Subnet 2b") {
+                VPCNATGateway(prod_nat_2b, "NAT GW B", "Outbound")
+            }
+            PrivateSubnetGroup(prod_priv_2b, "Private Subnet 2b") {
+                ElasticContainerServiceService(prod_app_2b, "App Replicas", "Zone B")
+                AuroraMariaDBInstance(prod_db_standby, "RDS Standby", "Reader")
+            }
+        }
+    }
+  }
+}
+
+' --- RELATIONS ---
+
+' 1. User Traffic Flow
+user --> dns
+dns --> dev_alb : " dev.domain"
+dns --> prod_alb : " prod.domain"
+
+' 2. DEV Logic
+dev_alb --> dev_modx
+dev_alb --> dev_laravel
+dev_modx --> dev_db
+dev_laravel --> dev_db
+dev_modx .l.> dev_nat
+dev_laravel .l.> dev_nat
+dev_nat ..> dev_igw
+
+' 3. PROD Logic
+' ALB balances to both zones
+prod_alb --> prod_app_2a
+prod_alb --> prod_app_2b
+
+' Database Replication
+prod_app_2a --> prod_db_primary
+prod_app_2b --> prod_db_primary
+prod_db_primary -.-> prod_db_standby : " Sync"
+
+' PROD Cron/EventBridge
+prod_cron --> prod_app_2a : " Trigger Jobs"
+prod_eventbridge .d.> prod_alb : " Trigger Task"
+
+' PROD Outbound
+prod_app_2a .l.> prod_nat_2a
+prod_app_2b .r.> prod_nat_2b
+prod_cron .l.> prod_nat_2a
+prod_nat_2a ..> prod_igw
+prod_nat_2b ..> prod_igw
+
+' 4. Observability (Shared Destination, Separate Sources)
+dev_alb .r.> dev_s3
+dev_modx .r.> dev_cw
+dev_cw .r.> datadog : " Forwarding"
+
+prod_alb .r.> prod_s3
+prod_app_2a .r.> prod_cw
+prod_cw .r.> datadog : " Forwarding"
+
+@enduml
