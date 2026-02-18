@@ -1,0 +1,50 @@
+@startuml
+allow_mixing
+
+' --- IMPORTS ---
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v20.0/dist
+!include AWSPuml/AWSCommon.puml
+!include AWSPuml/SecurityIdentityCompliance/SecretsManager.puml
+!include AWSPuml/ManagementGovernance/CloudTrail.puml
+!include AWSPuml/ApplicationIntegration/EventBridge.puml
+!include AWSPuml/Compute/Lambda.puml
+!include AWSPuml/Containers/ElasticContainerService.puml
+!include AWSPuml/Database/AuroraMariaDBInstance.puml
+
+left to right direction
+
+' --- GROUP 1: DATABASE LAYER ---
+rectangle "Database Layer" {
+    SecretsManager(secrets, "Secrets Manager", "DB Credential")
+    AuroraMariaDBInstance(db, "RDS Database", "Target Resource")
+}
+
+' --- GROUP 2: DETECTION LAYER ---
+rectangle "Detection Layer" {
+    CloudTrail(trail, "CloudTrail", "Log API Calls")
+    EventBridge(eb, "EventBridge", "Rule: SecretRotated")
+}
+
+' --- GROUP 3: COMPUTE LAYER ---
+rectangle "Compute Layer" {
+    Lambda(fn_deploy, "Rotator Lambda", "Trigger ECS Update")
+    ElasticContainerService(ecs, "ECS Service", "App Containers")
+}
+
+' --- RELATIONSHIPS ---
+
+' 1. Rotation Event
+secrets --> db : " 1. Auto-Rotate Password"
+secrets ..> trail : " 2. Log 'RotationSucceeded'"
+
+' 2. Trigger Event
+trail --> eb : " 3. Forward Event"
+eb --> fn_deploy : " 4. Trigger Function"
+
+' 3. Deployment Action
+fn_deploy --> ecs : " 5. Force New Deployment\n(aws ecs update-service)"
+
+' 4. Closing the Loop
+ecs ..> secrets : " 6. Fetch New Secret\n(On Task Startup)"
+
+@enduml

@@ -1,0 +1,67 @@
+@startuml
+allow_mixing
+
+' --- IMPORTS ---
+!define AWSPuml https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v20.0/dist
+!include AWSPuml/AWSCommon.puml
+!include AWSPuml/General/User.puml
+!include AWSPuml/General/Client.puml
+!include AWSPuml/SecurityIdentityCompliance/IAMIdentityCenter.puml
+!include AWSPuml/ManagementGovernance/SystemsManager.puml
+!include AWSPuml/Compute/EC2Instance.puml
+!include AWSPuml/Database/AuroraMariaDBInstance.puml
+!include AWSPuml/Groups/AWSCloud.puml
+!include AWSPuml/Groups/VPC.puml
+!include AWSPuml/Groups/PrivateSubnet.puml
+!include AWSPuml/Groups/PublicSubnet.puml
+
+left to right direction
+
+' --- LOCAL ENVIRONMENT ---
+rectangle "Local Machine" {
+    User(dev, "Developer", "Laptop")
+    Client(terminal, "Terminal / Script", "aws sso login\naws ssm start-session")
+    Client(db_client, "DB Client", "localhost:3306")
+}
+
+' --- AWS CLOUD ---
+AWSCloudGroup(cloud) {
+
+    ' Authentication Layer
+    IAMIdentityCenter(sso, "AWS IAM Identity Center", "SSO Login")
+
+    ' Orchestration Layer
+    SystemsManager(ssm, "Systems Manager", "Session Manager")
+
+    VPCGroup(vpc, "VPC") {
+
+        ' Jump Host / Bastion Layer
+        PublicSubnetGroup(pub_sub, "Public Subnet") {
+            EC2Instance(bastion, "Bastion Host", "SSM Agent Running")
+        }
+
+        ' Database Layer
+        PrivateSubnetGroup(priv_sub, "Private Subnet") {
+            AuroraMariaDBInstance(rds, "RDS Database", "Port 3306")
+        }
+    }
+}
+
+' --- RELATIONSHIPS ---
+
+' 1. Authentication
+dev --> terminal : " 1. Run Script"
+terminal --> sso : " 2. Authenticate (SSO)"
+
+' 2. Tunnel Creation
+terminal --> ssm : " 3. Initiate Session\n(Port Forwarding)"
+ssm --> bastion : " 4. Establish Secure Channel\n(WebSocket)"
+
+' 3. Data Flow (The Tunnel)
+db_client ..> bastion : " 5. Traffic (via localhost:3306)"
+bastion ..> rds : " 6. Forward Traffic (Internal Network)"
+
+' Formatting Help to keep layers distinct
+sso -[hidden]-> ssm
+
+@enduml

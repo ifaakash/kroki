@@ -1,0 +1,385 @@
+name: Build/Deploy ( PROD )
+
+on:
+  push:
+    branches: ["main", "develop"]
+    paths: ["optic-systems-legacy/**", "optic-systems-v2/**"]
+
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, reopened]
+    paths: ["optic-systems-legacy/**", "optic-systems-v2/**"]
+
+  workflow_dispatch:
+    inputs:
+      manual_commit_sha:
+        description: "Commit SHA to deploy (Leave empty to use current commit)"
+        required: false
+        type: string
+
+env:
+  AWS_REGION: us-east-2
+  JAMPACK_BRANCH: mono-repo-changes
+  ECR_REPOSITORY_MODX: prod-optic-systems-modx
+  ECR_REPOSITORY_MODX_NGINX: prod-optic-systems-modx-nginx
+  ECR_REPOSITORY_LARAVEL: prod-optic-systems-laravel
+  ECR_REPOSITORY_LARAVEL_NGINX: prod-optic-systems-laravel-nginx
+  MODX_ECS_SERVICE: prod-optic-systems-modx-service
+  LARAVEL_ECS_SERVICE: prod-optic-systems-laravel-service
+  MODX_TASK_DEFINITION: prod-optic-systems-modx-app
+  LARAVEL_TASK_DEFINITION: prod-optic-systems-laravel-app
+  ECS_CLUSTER: prod-optic-systems-ecs-cluster
+  PLATFORM: linux/amd64
+  ENVIRONMENT: prod
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      laravel: ${{ steps.changes.outputs.laravel }}
+      modx: ${{ steps.changes.outputs.modx }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            laravel:
+              - 'optic-systems-v2/**'
+            modx:
+              - 'optic-systems-legacy/**'
+
+  build-laravel:
+    name: Build Laravel Image
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        needs.detect-changes.outputs.laravel == 'true' &&
+        (
+          (github.event_name == 'pull_request' && (github.head_ref == 'release')) ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+        )
+      )
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Set metadata for Laravel Image
+        id: laravel-metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_LARAVEL }}
+          tags: |
+            type=raw,value=${{ env.ENVIRONMENT }}-{{date 'YYYY-MM-DD-HHmm'}}
+            type=raw,value=${{github.sha}}
+            type=raw,value=laravel-latest
+
+      - name: Build and push Laravel image
+        uses: docker/build-push-action@v5
+        id: build-laravel
+        with:
+          context: .
+          file: ./optic-systems-v2/laravel.Dockerfile
+          platforms: ${{ env.PLATFORM }}
+          push: true
+          tags: ${{ steps.laravel-metadata.outputs.tags}}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Set metadata for Laravel Nginx image
+        id: laravel-nginx-metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_LARAVEL_NGINX }}
+          tags: |
+            type=raw,value=${{ env.ENVIRONMENT }}-{{date 'YYYY-MM-DD-HHmm'}}
+            type=raw,value=${{github.sha}}
+            type=raw,value=nginx-latest
+
+      - name: Build and push Laravel nginx image
+        uses: docker/build-push-action@v5
+        id: build-laravel-nginx
+        with:
+          context: ./optic-systems-v2
+          file: ./optic-systems-v2/nginx.Dockerfile
+          platforms: ${{ env.PLATFORM }}
+          push: true
+          tags: ${{ steps.laravel-nginx-metadata.outputs.tags}}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Output Laravel image URIs
+        run: |
+          echo "Laravel Image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_LARAVEL }}:${{github.sha}}"
+          echo "Laravel Nginx Image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_LARAVEL_NGINX }}:${{github.sha}}"
+
+  build-modx:
+    name: Build Modx Image
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        needs.detect-changes.outputs.modx == 'true' &&
+        (
+          (github.event_name == 'pull_request' && (github.head_ref == 'release')) ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+        )
+      )
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.SUBMODULE_PAT }}
+          fetch-depth: 0
+
+      - name: Switch Submodule to Main Branch
+        run: |
+          cd optic-systems-legacy/core/repositories/jampack
+
+          git checkout ${{ env.JAMPACK_BRANCH }}
+          git pull origin ${{ env.JAMPACK_BRANCH }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Set metadata for MODX Image
+        id: modx-metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_MODX }}
+          tags: |
+            type=raw,value=${{ env.ENVIRONMENT }}-{{date 'YYYY-MM-DD-HHmmss'}}
+            type=raw,value=${{github.sha}}
+            type=raw,value=modx-latest
+
+      - name: Build and push MODX image
+        uses: docker/build-push-action@v5
+        id: build-modx
+        with:
+          context: ./optic-systems-legacy
+          file: ./optic-systems-legacy/modx.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.modx-metadata.outputs.tags}}
+          build-args: |
+            WKHTMLTOPDF_ARCH=amd64
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Set metadata for MODX Nginx Image
+        id: modx-nginx-metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_MODX_NGINX }}
+          tags: |
+            type=raw,value=${{ env.ENVIRONMENT }}-{{date 'YYYY-MM-DD-HHmm'}}
+            type=raw,value=${{github.sha}}
+            type=raw,value=nginx-latest
+
+      - name: Build and push MODX Nginx Image
+        uses: docker/build-push-action@v5
+        id: build-modx-nginx
+        with:
+          context: ./optic-systems-legacy
+          file: ./optic-systems-legacy/nginx.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.modx-nginx-metadata.outputs.tags }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Output MODX image URIs
+        run: |
+          echo "MODX Image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_MODX }}:${{github.sha}}"
+          echo "MODX Nginx Image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_MODX_NGINX }}:${{github.sha}}"
+
+  deploy-laravel:
+    timeout-minutes: 10
+    name: Rollout Laravel new deployment
+    runs-on: ubuntu-latest
+    needs: [build-laravel]
+    if: |
+      always() &&
+      (
+        (github.event_name == 'workflow_dispatch' && (needs.build-laravel.result == 'success' || needs.build-laravel.result == 'skipped')) ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build-laravel.result == 'success')
+      ) || ( needs.build-laravel.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Determine Image Tag
+        id: get-tag
+        run: |
+          if [[ "${{ inputs.manual_commit_sha }}" != "" ]]; then
+            echo "TAG=${{ inputs.manual_commit_sha }}" >> $GITHUB_OUTPUT
+            echo "Using manual tag: ${{ inputs.manual_commit_sha }}"
+          else
+            echo "TAG=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "Using commit sha: ${{ github.sha }}"
+          fi
+
+      - name: Download ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.LARAVEL_TASK_DEFINITION }} \
+            --query 'taskDefinition' \
+            | jq 'del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .requiresAttributes,
+                .compatibilities,
+                .registeredAt,
+                .registeredBy
+              )' > laravel-task-def.json
+
+      - name: Fill in the new image ID in the ECS task definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        id: render-laravel-container
+        with:
+          task-definition: laravel-task-def.json
+          container-name: laravel
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_LARAVEL }}:${{ steps.get-tag.outputs.TAG }}
+
+      - name: Fill in the new image ID in the ECS task definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        id: render-nginx-container
+        with:
+          task-definition: ${{ steps.render-laravel-container.outputs.task-definition }}
+          container-name: laravel-nginx
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_LARAVEL_NGINX }}:${{ steps.get-tag.outputs.TAG }}
+
+      - name: Deploy latest task definition to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-nginx-container.outputs.task-definition }}
+          service: ${{ env.LARAVEL_ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          max-retries: 2
+
+  deploy-modx:
+    timeout-minutes: 10
+    name: Rollout Modx new deployment
+    needs: [build-modx]
+    runs-on: ubuntu-latest
+    if: |
+      always() &&
+      (
+        (github.event_name == 'workflow_dispatch' && (needs.build-modx.result == 'success' || needs.build-modx.result == 'skipped')) ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build-modx.result == 'success')
+      ) || (needs.build-modx.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Determine Image Tag
+        id: get-tag
+        run: |
+          if [[ "${{ inputs.manual_commit_sha }}" != "" ]]; then
+            echo "TAG=${{ inputs.manual_commit_sha }}" >> $GITHUB_OUTPUT
+            echo "Using manual tag: ${{ inputs.manual_commit_sha }}"
+          else
+            echo "TAG=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "Using commit sha: ${{ github.sha }}"
+          fi
+
+      - name: Download ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.MODX_TASK_DEFINITION }} \
+            --query 'taskDefinition' \
+            | jq 'del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .requiresAttributes,
+                .compatibilities,
+                .registeredAt,
+                .registeredBy
+              )' > modx-task-def.json
+
+      - name: Fill in the new image ID in the ECS task definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        id: render-modx-container
+        with:
+          task-definition: modx-task-def.json
+          container-name: modx-php
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_MODX }}:${{ steps.get-tag.outputs.TAG }}
+
+      - name: Fill in the new image ID in the ECS task definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        id: render-modx-nginx-container
+        with:
+          task-definition: ${{ steps.render-modx-container.outputs.task-definition }}
+          container-name: modx-nginx
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_MODX_NGINX }}:${{ steps.get-tag.outputs.TAG }}
+
+      - name: Deploy latest task definition to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-modx-nginx-container.outputs.task-definition }}
+          service: ${{ env.MODX_ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          max-retries: 2
