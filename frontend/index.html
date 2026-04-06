@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kroki — AI Architecture Diagram Generator</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: '#111827',
+            border: '#1f2937',
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+    <div class="flex items-center gap-3">
+      <svg class="w-8 h-8 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="7" height="7" rx="1"/>
+        <rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/>
+        <path d="M17.5 14v7M14 17.5h7"/>
+      </svg>
+      <h1 class="text-xl font-bold tracking-tight">Kroki</h1>
+    </div>
+    <span class="text-xs text-gray-500 hidden sm:block">AI Architecture Diagram Generator</span>
+  </header>
+
+  <!-- Main Layout -->
+  <main class="flex-1 flex overflow-hidden">
+
+    <!-- History Sidebar -->
+    <aside id="sidebar" class="hidden lg:flex flex-col w-64 border-r border-gray-800 bg-gray-950">
+      <div class="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+        <span class="text-sm font-medium text-gray-400">History</span>
+        <button id="btn-clear-history" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Clear</button>
+      </div>
+      <div id="history-list" class="flex-1 overflow-y-auto p-2 space-y-1">
+        <p id="history-empty" class="text-xs text-gray-600 text-center py-8">No diagrams yet</p>
+      </div>
+    </aside>
+
+    <!-- Mobile History Toggle -->
+    <button id="btn-sidebar-toggle" class="lg:hidden fixed bottom-4 left-4 z-50 bg-gray-800 hover:bg-gray-700 text-gray-300 p-3 rounded-full shadow-lg transition-colors">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+    </button>
+
+    <!-- Content Area -->
+    <div class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+
+      <!-- Left Panel: Input + Code -->
+      <section class="lg:w-[420px] flex flex-col border-r border-gray-800 overflow-y-auto">
+
+        <!-- Prompt Input -->
+        <div class="p-5">
+          <label for="prompt-input" class="block text-sm font-medium text-gray-300 mb-2">Describe your architecture</label>
+          <textarea
+            id="prompt-input"
+            rows="4"
+            class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 resize-y transition-colors"
+            placeholder="e.g., AWS VPC with public and private subnets, ALB, ECS Fargate, and RDS Aurora..."
+          ></textarea>
+
+          <div class="flex items-center gap-2 mt-3">
+            <button id="btn-generate" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+              <svg id="generate-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+              </svg>
+              <span id="generate-text">Generate</span>
+            </button>
+            <span class="text-xs text-gray-600 hidden sm:block">Ctrl+Enter</span>
+          </div>
+        </div>
+
+        <!-- Example Prompts -->
+        <div id="examples-section" class="px-5 pb-4">
+          <p class="text-xs text-gray-500 mb-2">Try an example:</p>
+          <div class="flex flex-wrap gap-2">
+            <button class="example-chip" data-prompt="AWS VPC with public and private subnets, ALB, ECS Fargate, and RDS Aurora database">AWS VPC + ECS</button>
+            <button class="example-chip" data-prompt="Microservices architecture with API gateway, 3 backend services, RabbitMQ message queue, PostgreSQL database, and Redis cache">Microservices</button>
+            <button class="example-chip" data-prompt="CI/CD pipeline: GitHub repo triggers Jenkins build, runs tests, builds Docker image, pushes to ECR, deploys to ECS with Slack notifications on success/failure">CI/CD Pipeline</button>
+            <button class="example-chip" data-prompt="Simple login sequence diagram showing user, web application, authentication service, and database interactions">Login Sequence</button>
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="border-t border-gray-800"></div>
+
+        <!-- PUML Code Panel -->
+        <div id="puml-panel" class="hidden flex-1 flex flex-col">
+          <div class="px-5 py-3 flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-300">PlantUML Code</span>
+            <div class="flex items-center gap-2">
+              <button id="btn-copy-puml" class="text-xs text-gray-500 hover:text-gray-300 transition-colors px-2 py-1 rounded hover:bg-gray-800">Copy</button>
+              <button id="btn-edit-puml" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-2 py-1 rounded hover:bg-gray-800">Edit</button>
+            </div>
+          </div>
+          <div class="px-5 pb-4 flex-1 min-h-0">
+            <textarea
+              id="puml-code"
+              class="w-full h-full min-h-[200px] bg-gray-900/80 border border-gray-700/50 rounded-lg px-4 py-3 text-xs font-mono text-emerald-400 resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-colors"
+              readonly
+            ></textarea>
+          </div>
+          <div id="puml-actions" class="hidden px-5 pb-4">
+            <button id="btn-render" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+              Re-render Diagram
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Panel: Diagram Display -->
+      <section class="flex-1 flex flex-col overflow-hidden">
+
+        <!-- Empty State -->
+        <div id="empty-state" class="flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <svg class="w-24 h-24 text-gray-800 mb-6" fill="none" stroke="currentColor" stroke-width="1" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M3 9h18M9 3v18"/>
+          </svg>
+          <h2 class="text-lg font-medium text-gray-500 mb-2">Your diagram will appear here</h2>
+          <p class="text-sm text-gray-600 max-w-sm">Describe your architecture in the text box and click Generate to create a PlantUML diagram.</p>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading-state" class="hidden flex-1 flex flex-col items-center justify-center p-8">
+          <div class="shimmer w-full max-w-lg h-64 rounded-xl mb-4"></div>
+          <p id="loading-text" class="text-sm text-gray-400 animate-pulse">Generating PlantUML code...</p>
+        </div>
+
+        <!-- Diagram Display -->
+        <div id="diagram-state" class="hidden flex-1 flex flex-col overflow-hidden">
+          <div class="flex-1 overflow-auto p-6 flex items-start justify-center">
+            <img id="diagram-image" class="max-w-full h-auto rounded-lg shadow-2xl shadow-black/50 cursor-zoom-in transition-transform" alt="Generated diagram" />
+          </div>
+
+          <!-- Action Bar -->
+          <div class="border-t border-gray-800 px-6 py-3 flex flex-wrap items-center gap-3">
+            <button id="btn-download-png" class="action-btn">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Download PNG
+            </button>
+            <button id="btn-download-svg" class="action-btn">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Download SVG
+            </button>
+            <div class="flex-1"></div>
+            <button id="btn-iterate" class="action-btn-secondary">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              Iterate
+            </button>
+            <button id="btn-new" class="action-btn-secondary">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M12 4v16m8-8H4"/>
+              </svg>
+              New
+            </button>
+          </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-state" class="hidden flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <svg class="w-16 h-16 text-red-500/50 mb-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+          </svg>
+          <h2 id="error-title" class="text-lg font-medium text-red-400 mb-2">Generation Failed</h2>
+          <p id="error-detail" class="text-sm text-gray-500 max-w-sm mb-4">Something went wrong. Please try again.</p>
+          <button id="btn-retry" class="bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm px-4 py-2 rounded-lg transition-colors">Try Again</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+  <!-- Image Zoom Modal -->
+  <div id="zoom-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-zoom-out">
+    <img id="zoom-image" class="max-w-[95vw] max-h-[95vh] object-contain" alt="Zoomed diagram" />
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/mock.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/history.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
