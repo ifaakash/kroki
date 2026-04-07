@@ -1,5 +1,6 @@
 /**
- * App entry point — wires events to API calls to UI updates.
+ * OpsVisual — App entry point.
+ * Wires events to API calls to UI updates.
  */
 
 // Current state
@@ -10,6 +11,8 @@ let isGenerating = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
+  initNavbar();
+  initScrollReveal();
   renderHistory();
 
   if (USE_MOCKS) {
@@ -73,12 +76,62 @@ function bindEvents() {
     $('#zoom-modal')?.classList.add('hidden');
   });
 
-  // Mobile sidebar toggle
-  $('#btn-sidebar-toggle')?.addEventListener('click', toggleMobileSidebar);
+  // Mobile menu toggle
+  $('#btn-mobile-menu')?.addEventListener('click', () => {
+    const menu = $('#mobile-menu');
+    if (menu) menu.classList.toggle('hidden');
+  });
+
+  // Close mobile menu on link click
+  $$('#mobile-menu a').forEach(link => {
+    link.addEventListener('click', () => {
+      $('#mobile-menu')?.classList.add('hidden');
+    });
+  });
 }
 
 /**
- * Main generate flow: prompt → PUML → render → display.
+ * Navbar — add background on scroll.
+ */
+function initNavbar() {
+  const navbar = $('#navbar');
+  if (!navbar) return;
+
+  const onScroll = () => {
+    if (window.scrollY > 40) {
+      navbar.classList.add('scrolled');
+    } else {
+      navbar.classList.remove('scrolled');
+    }
+  };
+
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
+
+/**
+ * Scroll reveal — animate sections into view.
+ */
+function initScrollReveal() {
+  const sections = $$('#features, #how-it-works, #testimonials');
+  if (!sections.length) return;
+
+  sections.forEach(s => s.classList.add('reveal'));
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1 });
+
+  sections.forEach(s => observer.observe(s));
+}
+
+/**
+ * Main generate flow: prompt -> PUML -> render -> display.
  */
 async function handleGenerate() {
   const input = $('#prompt-input');
@@ -130,7 +183,7 @@ async function handleGenerate() {
 }
 
 /**
- * Re-render with edited PUML code (skips Gemini).
+ * Re-render with edited PUML code (skips AI).
  */
 async function handleReRender() {
   const puml = getPumlCode();
@@ -153,7 +206,6 @@ async function handleReRender() {
     showDiagram(currentImageUri);
     showToast('Diagram re-rendered', 'success', 2000);
 
-    // Update history with new render
     historyAdd({
       prompt: currentPrompt || 'Manual PUML edit',
       puml: currentPuml,
@@ -177,6 +229,8 @@ function handleIterate() {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   }
+  // Scroll to generator section
+  document.getElementById('generator')?.scrollIntoView({ behavior: 'smooth' });
   showToast('Edit your prompt and generate again', 'info', 2000);
 }
 
@@ -204,27 +258,8 @@ function handleDownload(format) {
   }
 
   const timestamp = new Date().toISOString().slice(0, 10);
-  const filename = `kroki-diagram-${timestamp}.${format === 'png' ? 'png' : 'svg'}`;
+  const filename = `opsvisual-${timestamp}.${format === 'png' ? 'png' : 'svg'}`;
 
-  // If current image is SVG and user wants PNG, we'd need server-side conversion.
-  // For mock mode, just download what we have.
   downloadDataUri(currentImageUri, filename);
   showToast(`Downloaded ${filename}`, 'success', 2000);
-}
-
-/**
- * Toggle mobile sidebar.
- */
-function toggleMobileSidebar() {
-  const sidebar = $('#sidebar');
-  if (!sidebar) return;
-
-  const isVisible = !sidebar.classList.contains('hidden');
-  if (isVisible) {
-    sidebar.classList.add('hidden');
-    sidebar.classList.remove('fixed', 'inset-0', 'z-40', 'w-72');
-  } else {
-    sidebar.classList.remove('hidden', 'lg:flex');
-    sidebar.classList.add('fixed', 'inset-y-0', 'left-0', 'z-40', 'w-72', 'flex');
-  }
 }

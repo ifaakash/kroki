@@ -1,11 +1,6 @@
-/* Shimmer loading animation */
+/* ===== Shimmer loading animation ===== */
 .shimmer {
-  background: linear-gradient(
-    110deg,
-    #1f2937 8%,
-    #374151 18%,
-    #1f2937 33%
-  );
+  background: linear-gradient(110deg, #1f2937 8%, #374151 18%, #1f2937 33%);
   background-size: 200% 100%;
   animation: shimmer 1.5s linear infinite;
 }
@@ -15,7 +10,7 @@
   100% { background-position: -200% 0; }
 }
 
-/* Spinner for generate button */
+/* ===== Spinner ===== */
 .spinner {
   width: 16px;
   height: 16px;
@@ -29,7 +24,7 @@
   to { transform: rotate(360deg); }
 }
 
-/* Toast animations */
+/* ===== Toast animations ===== */
 .toast {
   animation: toast-in 0.3s ease-out;
 }
@@ -39,28 +34,67 @@
 }
 
 @keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(100%);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes toast-out {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(100%);
-  }
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(100%); }
 }
 
-/* Example chips */
+/* ===== Navbar ===== */
+#navbar {
+  background: transparent;
+}
+
+#navbar.scrolled {
+  background: rgba(3, 7, 18, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(31, 41, 55, 0.5);
+}
+
+/* ===== Stat cards ===== */
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.25rem;
+  border-radius: 1rem;
+  background: rgba(17, 24, 39, 0.6);
+  border: 1px solid rgba(31, 41, 55, 0.5);
+}
+
+/* ===== Feature cards ===== */
+.feature-card {
+  padding: 1.75rem;
+  border-radius: 1rem;
+  background: rgba(17, 24, 39, 0.5);
+  border: 1px solid rgba(31, 41, 55, 0.5);
+  transition: all 0.2s ease;
+}
+
+.feature-card:hover {
+  border-color: rgba(75, 85, 99, 0.5);
+  background: rgba(17, 24, 39, 0.8);
+  transform: translateY(-2px);
+}
+
+/* ===== Testimonial cards ===== */
+.testimonial-card {
+  padding: 1.5rem;
+  border-radius: 1rem;
+  background: rgba(17, 24, 39, 0.5);
+  border: 1px solid rgba(31, 41, 55, 0.5);
+  transition: border-color 0.2s ease;
+}
+
+.testimonial-card:hover {
+  border-color: rgba(75, 85, 99, 0.5);
+}
+
+/* ===== Example chips ===== */
 .example-chip {
   font-size: 0.75rem;
   padding: 0.375rem 0.75rem;
@@ -79,7 +113,7 @@
   border-color: #4b5563;
 }
 
-/* Action buttons */
+/* ===== Action buttons ===== */
 .action-btn {
   display: flex;
   align-items: center;
@@ -116,12 +150,12 @@
   color: #f3f4f6;
 }
 
-/* PUML panel transition */
+/* ===== PUML panel ===== */
 #puml-panel {
   transition: opacity 0.2s ease;
 }
 
-/* Custom scrollbar for dark theme */
+/* ===== Scrollbar ===== */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -140,7 +174,7 @@
   background: #4b5563;
 }
 
-/* History item */
+/* ===== History items ===== */
 .history-item {
   display: flex;
   align-items: center;
@@ -161,22 +195,30 @@
   border-color: #374151;
 }
 
-/* Textarea focus glow */
+/* ===== Textarea focus glow ===== */
 textarea:focus {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
-/* Zoom image transition */
+/* ===== Zoom modal ===== */
 #zoom-modal img {
   transition: transform 0.2s ease;
 }
 
-/* Mobile sidebar overlay */
-#sidebar-overlay {
-  animation: fade-in 0.2s ease;
-}
-
+/* ===== Fade in ===== */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+/* ===== Smooth section reveal on scroll ===== */
+.reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
 }
